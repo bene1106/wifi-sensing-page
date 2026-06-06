@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WiFi-Sensing · Den Raum wahrnehmen, nur mit WiFi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg-0:#08090c;
+  --bg-1:#0b0d11;
+  --bg-2:#0f1319;
+  --ink:#e9ebef;
+  --ink-soft:#9aa1ab;
+  --ink-mute:#5a606b;
+  --cyan:#74cdd8;
+  --green:#93c3b8;
+  --line:rgba(150,165,185,.11);
+  --glass:rgba(20,24,32,.5);
+  --glass-brd:rgba(150,170,190,.12);
+  --maxw:1180px;
+  --ease:cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg-0);
+  color:var(--ink);
+  font-family:'JetBrains Mono','SF Mono',ui-monospace,monospace;
+  font-weight:400;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+h1,h2,h3,h4,.display{font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:-.035em;line-height:1.08;font-weight:700}
+.mono{font-family:'JetBrains Mono',monospace}
+.caret{display:inline-block;width:.5ch;height:.86em;margin-left:.06em;background:var(--cyan);box-shadow:0 0 14px var(--cyan);transform:translateY(.06em);animation:blink 1.1s steps(1) infinite;vertical-align:baseline}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(116,205,216,.28);color:#fff}
+
+/* crosshair cursor (research-terminal style) */
+body{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cg stroke='%23000000' stroke-opacity='0.5' stroke-width='3.4'%3E%3Cline x1='15' y1='3' x2='15' y2='11'/%3E%3Cline x1='15' y1='19' x2='15' y2='27'/%3E%3Cline x1='3' y1='15' x2='11' y2='15'/%3E%3Cline x1='19' y1='15' x2='27' y2='15'/%3E%3C/g%3E%3Cg stroke='%23ffffff' stroke-width='1.6'%3E%3Cline x1='15' y1='3' x2='15' y2='11'/%3E%3Cline x1='15' y1='19' x2='15' y2='27'/%3E%3Cline x1='3' y1='15' x2='11' y2='15'/%3E%3Cline x1='19' y1='15' x2='27' y2='15'/%3E%3C/g%3E%3C/g%3E%3Ccircle cx='15' cy='15' r='1.2' fill='%23ffffff'/%3E%3C/svg%3E") 15 15, crosshair}
+a,button,.btn,.nav-cta,[role=button]{cursor:pointer}
+.room-viz{cursor:grab}
+.room-viz:active{cursor:grabbing}
+
+/* soft glow that follows the cursor across the page */
+#cursorGlow{position:fixed;left:0;top:0;width:540px;height:540px;margin:-270px 0 0 -270px;border-radius:50%;pointer-events:none;z-index:60;mix-blend-mode:screen;opacity:0;transition:opacity .35s var(--ease);will-change:transform;
+  background:radial-gradient(circle,rgba(116,205,216,.11),rgba(116,205,216,.045) 34%,transparent 68%)}
+@media(hover:none){#cursorGlow{display:none}body{cursor:auto}}
+
+/* ---------- layout helpers ---------- */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+.section{position:relative;padding:130px 0}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--cyan);
+  padding:7px 14px;border:1px solid rgba(116,205,216,.22);border-radius:100px;
+  background:rgba(116,205,216,.05);
+}
+.eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.section h2{font-size:clamp(24px,3.2vw,41px);margin:22px 0 18px;max-width:22ch;font-weight:700}
+.lede{font-size:clamp(16px,1.5vw,19px);color:var(--ink-soft);max-width:62ch;font-weight:400}
+.kicker{color:var(--ink-mute);font-size:13px;font-family:'JetBrains Mono',monospace;letter-spacing:.1em}
+
+/* gradient text */
+.grad{color:var(--cyan)}
+
+/* ---------- nav ---------- */
+header.nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .4s var(--ease),border-color .4s var(--ease);
+  border-bottom:1px solid transparent;
+}
+header.nav.scrolled{background:rgba(6,9,16,.72);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nav-inner{width:100%;max-width:var(--maxw);display:flex;align-items:center;justify-content:space-between;padding:16px 28px}
+.brand{display:flex;align-items:center;gap:11px;font-family:'JetBrains Mono';font-weight:600;font-size:16px;letter-spacing:-.01em}
+.brand .glyph{position:relative;width:26px;height:26px;display:grid;place-items:center}
+.brand .glyph svg{width:26px;height:26px}
+.nav-links{display:flex;gap:30px;align-items:center}
+.nav-links a{font-size:14.5px;color:var(--ink-soft);transition:color .25s}
+.nav-links a:hover{color:var(--ink)}
+.nav-cta{font-size:14px;padding:9px 16px;border:1px solid var(--glass-brd);border-radius:9px;color:var(--ink);background:var(--glass);transition:.25s}
+.nav-cta:hover{border-color:rgba(116,205,216,.5);box-shadow:0 0 0 1px rgba(116,205,216,.25),0 8px 30px rgba(116,205,216,.12)}
+@media(max-width:780px){.nav-links{display:none}}
+
+/* ---------- hero ---------- */
+.hero{position:relative;min-height:100vh;display:flex;align-items:center;overflow:hidden}
+#waveCanvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hero-veil{position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(8,9,12,.66),rgba(8,9,12,.22) 40%,rgba(8,9,12,0) 68%),
+  radial-gradient(120% 95% at 50% -14%,transparent 60%,rgba(8,9,12,.30) 100%),
+  linear-gradient(180deg,rgba(8,9,12,.30),rgba(8,9,12,0) 24%,rgba(8,9,12,0) 66%,rgba(8,9,12,.40));
+  pointer-events:none;z-index:1}
+.hero-inner{position:relative;z-index:2;width:100%}
+.hero h1{font-size:clamp(29px,5.4vw,66px);font-weight:700;max-width:18ch}
+.hero .tagline{margin-top:22px;font-size:clamp(17px,2vw,23px);color:var(--ink-soft);max-width:46ch;font-weight:400}
+.hero-badge{margin-bottom:30px}
+.hero-cta-row{margin-top:40px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:10px;font-family:'JetBrains Mono';font-weight:500;font-size:15.5px;padding:14px 24px;border-radius:11px;cursor:pointer;transition:.28s var(--ease);border:1px solid transparent}
+.btn-primary{background:#eceef1;color:#0b0e13;box-shadow:0 8px 30px -16px rgba(0,0,0,.7)}
+.btn-primary:hover{transform:translateY(-2px);background:#fff;box-shadow:0 14px 34px -16px rgba(116,205,216,.4)}
+.btn-ghost{background:rgba(255,255,255,.02);border-color:var(--glass-brd);color:var(--ink)}
+.btn-ghost:hover{border-color:rgba(116,205,216,.5);background:rgba(116,205,216,.04)}
+.hero-meta{margin-top:54px;display:flex;gap:38px;flex-wrap:wrap}
+.hero-meta .m{display:flex;flex-direction:column;gap:3px}
+.hero-meta .m b{font-family:'JetBrains Mono';font-size:24px;font-weight:600;color:var(--ink)}
+.hero-meta .m span{font-size:12.5px;color:var(--ink-mute);font-family:'JetBrains Mono';letter-spacing:.06em}
+.scroll-hint{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:2;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--ink-mute);font-size:11px;font-family:'JetBrains Mono';letter-spacing:.2em}
+.scroll-hint .mouse{width:22px;height:34px;border:1.5px solid var(--ink-mute);border-radius:12px;position:relative}
+.scroll-hint .mouse::after{content:"";position:absolute;top:6px;left:50%;transform:translateX(-50%);width:3px;height:6px;border-radius:2px;background:var(--cyan);animation:scrolldot 1.8s infinite}
+@keyframes scrolldot{0%{opacity:0;top:6px}30%{opacity:1}70%{opacity:1}100%{opacity:0;top:16px}}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(34px);transition:opacity .9s var(--ease),transform .9s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+.reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}.reveal.d3{transition-delay:.24s}.reveal.d4{transition-delay:.32s}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+
+/* ---------- cards / glass ---------- */
+.glass{background:var(--glass);border:1px solid var(--glass-brd);border-radius:18px;backdrop-filter:blur(12px)}
+.tilt{transition:transform .25s var(--ease),box-shadow .35s var(--ease),border-color .35s}
+.tilt:hover{border-color:rgba(116,205,216,.4)}
+
+/* concept grid */
+.concept-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:30px;align-items:center;margin-top:60px}
+@media(max-width:880px){.concept-grid{grid-template-columns:1fr}}
+.feat-list{display:flex;flex-direction:column;gap:16px;margin-top:34px}
+.feat{display:flex;gap:16px;align-items:flex-start}
+.feat .ic{flex:0 0 auto;width:42px;height:42px;border-radius:11px;display:grid;place-items:center;background:rgba(116,205,216,.07);border:1px solid rgba(116,205,216,.18)}
+.feat .ic svg{width:21px;height:21px;stroke:var(--cyan)}
+.feat h4{font-family:'JetBrains Mono';font-size:16.5px;font-weight:600;margin-bottom:3px}
+.feat p{font-size:14.5px;color:var(--ink-soft)}
+
+/* room viz */
+.room-viz{position:relative;border-radius:20px;overflow:hidden;min-height:380px;background:radial-gradient(130% 120% at 30% 20%,#10182b,#070b14)}
+#roomCanvas{display:block;width:100%;height:100%;position:absolute;inset:0}
+.room-tag{position:absolute;z-index:3;font-family:'JetBrains Mono';font-size:11px;letter-spacing:.08em;color:var(--ink-soft);text-shadow:0 1px 6px rgba(3,6,12,.9),0 0 2px rgba(3,6,12,.9)}
+
+/* ---------- CSI heatmap ---------- */
+.csi-wrap{margin-top:60px;display:grid;grid-template-columns:.85fr 1.15fr;gap:34px;align-items:stretch}
+@media(max-width:920px){.csi-wrap{grid-template-columns:1fr}}
+.csi-panel{padding:26px;display:flex;flex-direction:column}
+.csi-steps{display:flex;flex-direction:column;gap:22px;margin-top:8px}
+.csi-step{display:flex;gap:16px}
+.csi-step .num{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-family:'JetBrains Mono';font-size:13px;color:var(--green);background:rgba(147,195,184,.07);border:1px solid rgba(147,195,184,.2)}
+.csi-step h4{font-family:'JetBrains Mono';font-size:15.5px;margin-bottom:2px}
+.csi-step p{font-size:14px;color:var(--ink-soft)}
+.heatmap-card{padding:18px;display:flex;flex-direction:column;gap:14px}
+.heatmap-head{display:flex;align-items:center;justify-content:space-between}
+.heatmap-head .ttl{font-family:'JetBrains Mono';font-size:12.5px;color:var(--ink-soft);letter-spacing:.08em;display:flex;align-items:center;gap:9px}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.heat-stage{position:relative;border-radius:12px;overflow:hidden;background:#0a0a14;aspect-ratio:16/8.2}
+#csiCanvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:auto}
+.heat-axis-y{position:absolute;left:8px;top:8px;bottom:8px;display:flex;flex-direction:column;justify-content:space-between;font-family:'JetBrains Mono';font-size:9.5px;color:rgba(234,241,255,.55);z-index:2;pointer-events:none}
+.heat-axis-x{display:flex;justify-content:space-between;font-family:'JetBrains Mono';font-size:10px;color:var(--ink-mute);padding:0 2px}
+.legend{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono';font-size:10.5px;color:var(--ink-mute)}
+.legend .bar{height:8px;flex:1;border-radius:5px;background:linear-gradient(90deg,#440154,#3b528b,#21918c,#5ec962,#fde725)}
+.heat-stage{cursor:crosshair}
+.heat-probe{position:absolute;right:8px;transform:translateY(-50%);z-index:4;pointer-events:none;opacity:0;transition:opacity .2s;font-family:'JetBrains Mono';font-size:10px;color:#0a0d12;background:rgba(214,238,233,.94);padding:2px 7px;border-radius:5px;letter-spacing:.03em;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+.csi-hint{margin-top:10px;font-size:10.5px;color:var(--ink-mute);letter-spacing:.02em;opacity:.8}
+
+/* ---------- architecture flow ---------- */
+.arch-stage{margin-top:64px;position:relative;border-radius:22px;padding:46px 30px;overflow:hidden;background:linear-gradient(180deg,#0a0f1c,#070a12);border:1px solid var(--glass-brd)}
+#archCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.arch-row{position:relative;z-index:2;display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:8px}
+@media(max-width:880px){.arch-row{grid-template-columns:1fr;gap:42px}}
+.node{padding:24px 22px;border-radius:16px;background:rgba(10,16,28,.72);border:1px solid var(--glass-brd);backdrop-filter:blur(8px);text-align:center;transition:.3s var(--ease)}
+.node:hover{border-color:rgba(116,205,216,.45);transform:translateY(-3px)}
+.node .badge{font-family:'JetBrains Mono';font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)}
+.node.rx .badge{color:var(--green)}
+.node h3{font-size:20px;margin:9px 0 6px}
+.node p{font-size:13.5px;color:var(--ink-soft)}
+.node .board{width:66px;height:46px;margin:0 auto 14px;border-radius:8px;position:relative;background:linear-gradient(160deg,#13243a,#0a1322);border:1px solid rgba(116,205,216,.25);display:grid;place-items:center}
+.node.rx .board{border-color:rgba(147,195,184,.3)}
+.node .board::before{content:"";position:absolute;inset:6px;border-radius:4px;border:1px dashed rgba(140,170,220,.2)}
+.node .board .chip{width:18px;height:18px;border-radius:3px;background:linear-gradient(135deg,#1c2f4a,#0f1b2e);border:1px solid rgba(140,170,220,.3);position:relative;z-index:1}
+.node .board .chip::after{content:"";position:absolute;inset:4px;border:1px solid rgba(116,205,216,.4);border-radius:1px}
+.arch-conn{display:grid;place-items:center;min-width:54px}
+.arch-conn .lbl{font-family:'JetBrains Mono';font-size:10px;color:var(--ink-mute);margin-top:6px;letter-spacing:.1em;text-align:center}
+.arrow{position:relative;width:54px;height:2px;background:linear-gradient(90deg,rgba(116,205,216,.1),rgba(116,205,216,.5))}
+.arrow::after{content:"";position:absolute;right:-1px;top:-3px;border-left:7px solid var(--cyan);border-top:4px solid transparent;border-bottom:4px solid transparent}
+@media(max-width:880px){.arrow{width:2px;height:42px;background:linear-gradient(180deg,rgba(116,205,216,.1),rgba(116,205,216,.5))}.arrow::after{right:auto;left:-3px;bottom:-1px;top:auto;border-left:4px solid transparent;border-right:4px solid transparent;border-top:7px solid var(--cyan)}}
+
+/* ---------- tech stack ---------- */
+.stack-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:56px}
+@media(max-width:980px){.stack-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.stack-grid{grid-template-columns:1fr}}
+.stack-card{padding:26px 24px;position:relative;overflow:hidden}
+.stack-card .glow{position:absolute;inset:0;opacity:0;background:radial-gradient(120px 120px at var(--mx,50%) var(--my,50%),rgba(116,205,216,.12),transparent 70%);transition:opacity .3s;pointer-events:none}
+.stack-card:hover .glow{opacity:1}
+.stack-card .ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:rgba(116,205,216,.06);border:1px solid rgba(116,205,216,.16);margin-bottom:18px}
+.stack-card .ic svg{width:23px;height:23px;stroke:var(--cyan)}
+.stack-card h3{font-size:18px;margin-bottom:7px}
+.stack-card .role{font-family:'JetBrains Mono';font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--green);margin-bottom:13px;display:block}
+.stack-card p{font-size:13.5px;color:var(--ink-soft)}
+
+/* ---------- use cases ---------- */
+.use-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:56px}
+@media(max-width:860px){.use-grid{grid-template-columns:1fr}}
+.use-card{padding:30px 28px;position:relative;overflow:hidden;min-height:220px;display:flex;flex-direction:column}
+.use-card .num{font-family:'JetBrains Mono';font-size:12px;color:var(--ink-mute);letter-spacing:.1em}
+.use-card h3{font-size:21px;margin:18px 0 10px}
+.use-card p{font-size:14px;color:var(--ink-soft);flex:1}
+.use-card .ic{position:absolute;top:24px;right:24px;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:rgba(147,195,184,.05);border:1px solid rgba(147,195,184,.16)}
+.use-card .ic svg{width:20px;height:20px;stroke:var(--green)}
+.use-card .priv{margin-top:16px;font-family:'JetBrains Mono';font-size:11px;color:var(--cyan);display:inline-flex;align-items:center;gap:7px;letter-spacing:.06em}
+
+/* privacy banner */
+.privacy{margin-top:40px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:24px 28px;border-radius:16px;background:linear-gradient(100deg,rgba(116,205,216,.05),rgba(147,195,184,.04));border:1px solid var(--glass-brd)}
+.privacy .ic{width:48px;height:48px;flex:0 0 auto;border-radius:12px;display:grid;place-items:center;background:rgba(147,195,184,.08);border:1px solid rgba(147,195,184,.2)}
+.privacy .ic svg{width:24px;height:24px;stroke:var(--green)}
+.privacy h4{font-family:'JetBrains Mono';font-size:17px;margin-bottom:3px}
+.privacy p{font-size:14px;color:var(--ink-soft);max-width:70ch}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:60px 0 48px;margin-top:60px}
+.foot-inner{display:flex;justify-content:space-between;align-items:flex-start;gap:30px;flex-wrap:wrap}
+.foot-inner p{font-size:13.5px;color:var(--ink-mute);max-width:40ch}
+.foot-links{display:flex;gap:26px;font-size:14px;color:var(--ink-soft)}
+.foot-links a:hover{color:var(--cyan)}
+
+/* section divider glow line */
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);max-width:var(--maxw);margin:0 auto}
+</style>
+</head>
+<body>
+<div id="cursorGlow"></div>
+
+<!-- NAV -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <div class="brand">
+      <span class="glyph">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 19.5a1.6 1.6 0 100-3.2 1.6 1.6 0 000 3.2z" fill="#74cdd8"/><path d="M7.4 13.4a6.4 6.4 0 019.2 0M4.2 10.1a11 11 0 0115.6 0" stroke="#93c3b8" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </span>
+      <span>CSI<span style="color:var(--cyan)">·</span>Sense</span>
+    </div>
+    <nav class="nav-links">
+      <a href="#was">Konzept</a>
+      <a href="#csi">CSI</a>
+      <a href="#arch">Architektur</a>
+      <a href="#stack">Technik</a>
+      <a href="#use">Anwendungen</a>
+    </nav>
+    <a href="#was" class="nav-cta">Mehr erfahren</a>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero" id="top">
+  <canvas id="waveCanvas"></canvas>
+  <div class="hero-veil"></div>
+  <div class="hero-inner">
+    <div class="wrap">
+      <div class="hero-badge reveal in"><span class="eyebrow"><span class="dot"></span>WiFi-Sensing · ESP32-C6 · Machine Learning</span></div>
+      <h1 class="reveal in d1">Den Raum wahrnehmen,<br><span class="grad">nur mit WiFi.</span><span class="caret"></span></h1>
+      <p class="tagline reveal in d2">Bewegung verändert Funkwellen. Aus diesen winzigen Störungen erkennt ein ML-Modell menschliche Aktivität, ganz ohne Kamera, Mikrofon oder Wearable.</p>
+      <div class="hero-cta-row reveal in d3">
+        <a href="#csi" class="btn btn-primary">Visualisierung ansehen
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#0a0d12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="#was" class="btn btn-ghost">Wie funktioniert das?</a>
+      </div>
+      <div class="hero-meta reveal in d4">
+        <div class="m"><b>2×</b><span>ESP32-C6</span></div>
+        <div class="m"><b>CSI</b><span>Channel State Info</span></div>
+        <div class="m"><b>0</b><span>Kameras / Mikrofone</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll-hint"><span class="mouse"></span>SCROLL</div>
+</section>
+
+<!-- WAS IST WIFI-SENSING -->
+<section class="section" id="was">
+  <div class="wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>Das Prinzip</span>
+    <div class="concept-grid">
+      <div>
+        <h2 class="reveal">Funkwellen werden zum Sensor.</h2>
+        <p class="lede reveal d1">Ein WiFi-Signal füllt den gesamten Raum, es reflektiert an Wänden, Möbeln und Menschen. Tritt eine Person in dieses Feld, verändert sie die Ausbreitung der Wellen messbar: Reflexion, Dämpfung und Laufzeit verschieben sich. Genau diese Veränderung wird zur Information.</p>
+        <div class="feat-list">
+          <div class="feat reveal d1">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round"><path d="M2 12a10 10 0 0120 0M5.5 12a6.5 6.5 0 0113 0M9 12a3 3 0 016 0"/></svg></span>
+            <div><h4>Allgegenwärtiges Signal</h4><p>WiFi durchdringt den Raum bereits, keine zusätzliche Infrastruktur, keine Beleuchtung nötig.</p></div>
+          </div>
+          <div class="feat reveal d2">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-7 4 14 2-7h7"/></svg></span>
+            <div><h4>Bewegung stört das Feld</h4><p>Jede Bewegung erzeugt ein charakteristisches Muster aus Amplituden- und Phasen­änderungen.</p></div>
+          </div>
+          <div class="feat reveal d3">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v2M16 18v2"/></svg></span>
+            <div><h4>Muster werden lesbar</h4><p>Ein Machine-Learning-Modell lernt, diese Muster zu unterscheiden und in Aktivität zu übersetzen.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="room-viz glass reveal d2">
+        <canvas id="roomCanvas"></canvas>
+        <span class="room-tag" style="left:16px;bottom:14px">TX · Sender</span>
+        <span class="room-tag" style="right:16px;top:14px">RX · Empfänger</span>
+        <span class="room-tag" style="left:16px;top:14px;color:var(--green)">↔ Objekt ziehen</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CSI -->
+<section class="section" id="csi">
+  <div class="wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>Channel State Information</span>
+    <h2 class="reveal">Wie aus Wellen Daten werden.</h2>
+    <p class="lede reveal d1">CSI beschreibt für viele einzelne Frequenzen (Subcarrier) gleichzeitig, wie stark und wie verzögert das Signal beim Empfänger ankommt. Das Ergebnis ist eine feinkörnige „Signatur" des Raums, die sich bei jeder Bewegung verändert.</p>
+    <div class="csi-wrap">
+      <div class="csi-panel glass reveal d1">
+        <span class="kicker">VOM PAKET ZUM MERKMAL</span>
+        <div class="csi-steps">
+          <div class="csi-step"><span class="num">1</span><div><h4>Pakete senden</h4><p>Der Sender schickt kontinuierlich Funkpakete an den Empfänger.</p></div></div>
+          <div class="csi-step"><span class="num">2</span><div><h4>CSI auslesen</h4><p>Der Empfänger misst Amplitude &amp; Phase pro Subcarrier, viele Werte je Paket.</p></div></div>
+          <div class="csi-step"><span class="num">3</span><div><h4>Muster bilden</h4><p>Über die Zeit entsteht eine Heatmap aus charakteristischen Mustern.</p></div></div>
+          <div class="csi-step"><span class="num">4</span><div><h4>Klassifizieren</h4><p>Das ML-Modell ordnet das Muster einer Aktivität zu.</p></div></div>
+        </div>
+      </div>
+      <div class="heatmap-card glass reveal d2">
+        <div class="heatmap-head">
+          <span class="ttl"><span class="live-dot"></span>CSI · LIVE-STREAM</span>
+          <span class="mono" style="font-size:11.5px;color:var(--ink-mute)">64 SUBCARRIER</span>
+        </div>
+        <div class="heat-stage">
+          <canvas id="csiCanvas"></canvas>
+          <div class="heat-axis-y"><span>sc 64</span><span>sc 32</span><span>sc 1</span></div>
+          <div class="heat-probe" id="csiProbe"></div>
+        </div>
+        <div class="heat-axis-x"><span>−2.0s</span><span>−1.0s</span><span>jetzt</span></div>
+        <div class="legend"><span>niedrig</span><span class="bar"></span><span>hoch</span></div>
+        <div class="csi-hint mono">↕ Maus über den Stream bewegen, um Bewegung ins Funkfeld einzuspeisen</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ARCHITEKTUR -->
+<section class="section" id="arch">
+  <div class="wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>Architektur</span>
+    <h2 class="reveal">Vom Funkpaket zur Vorhersage.</h2>
+    <p class="lede reveal d1">Zwei ESP32-C6 bilden die Funkstrecke, ein Laptop übernimmt Verarbeitung und Klassifikation. Schlank, lokal und in Echtzeit.</p>
+    <div class="arch-stage reveal d1">
+      <canvas id="archCanvas"></canvas>
+      <div class="arch-row">
+        <div class="node tx">
+          <div class="board"><span class="chip"></span></div>
+          <span class="badge">TX</span>
+          <h3>Sender</h3>
+          <p>ESP32-C6 sendet getaktete Funkpakete in den Raum.</p>
+        </div>
+        <div class="arch-conn"><div class="arrow"></div><span class="lbl">ESP-NOW<br>Funkpakete</span></div>
+        <div class="node rx">
+          <div class="board"><span class="chip"></span></div>
+          <span class="badge">RX</span>
+          <h3>Empfänger</h3>
+          <p>ESP32-C6 misst CSI je Paket und streamt die Werte.</p>
+        </div>
+        <div class="arch-conn"><div class="arrow"></div><span class="lbl">Serial / USB<br>CSI-Stream</span></div>
+        <div class="node">
+          <div class="board" style="border-color:rgba(140,170,220,.3)"><span class="chip"></span></div>
+          <span class="badge" style="color:var(--ink-soft)">HOST</span>
+          <h3>Laptop · ML</h3>
+          <p>Python verarbeitet die Daten und klassifiziert in Echtzeit.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- TECHNIK-STACK -->
+<section class="section" id="stack">
+  <div class="wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>Technik-Stack</span>
+    <h2 class="reveal">Komponenten der Pipeline.</h2>
+    <p class="lede reveal d1">Bewusst minimal gehalten: günstige Hardware, offene Werkzeuge, lokale Verarbeitung.</p>
+    <div class="stack-grid">
+      <div class="stack-card glass tilt reveal d1" data-tilt>
+        <div class="glow"></div>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg></div>
+        <span class="role">Hardware</span>
+        <h3>ESP32-C6</h3>
+        <p>Stromsparender WLAN-Mikrocontroller mit CSI-Zugriff, als Sender und Empfänger im Einsatz.</p>
+      </div>
+      <div class="stack-card glass tilt reveal d2" data-tilt>
+        <div class="glow"></div>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a8 8 0 0116 0M7 11a4.5 4.5 0 0110 0M10.5 15a1.5 1.5 0 013 0"/><path d="M12 18v3"/></svg></div>
+        <span class="role">Funkprotokoll</span>
+        <h3>ESP-NOW</h3>
+        <p>Verbindungsloses Funkprotokoll für direkte, latenzarme Paketübertragung zwischen den Boards.</p>
+      </div>
+      <div class="stack-card glass tilt reveal d3" data-tilt>
+        <div class="glow"></div>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="6" r="1.8"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="9" r="1.8"/><circle cx="19" cy="16" r="1.8"/><path d="M6.6 6.8l3.4 3.8M6.6 17.2l3.4-3.8M17.4 9.6L14 11.4M17.4 15.4L14 13"/></svg></div>
+        <span class="role">Modell</span>
+        <h3>Random Forest</h3>
+        <p>Robuster Klassifikator, der CSI-Merkmale auswertet, schnell zu trainieren, gut interpretierbar.</p>
+      </div>
+      <div class="stack-card glass tilt reveal d4" data-tilt>
+        <div class="glow"></div>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H4z"/><path d="M2 20h20M9 16v4M15 16v4"/><path d="M8 9l2 2-2 2M13 13h3"/></svg></div>
+        <span class="role">Backend</span>
+        <h3>Flask</h3>
+        <p>Leichtgewichtiger Python-Server für Datenfluss, Inferenz und Live-Ausgabe der Ergebnisse.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ANWENDUNGSFÄLLE -->
+<section class="section" id="use">
+  <div class="wrap">
+    <span class="eyebrow reveal"><span class="dot"></span>Anwendungsfälle</span>
+    <h2 class="reveal">Was Funk-Wahrnehmung möglich macht.</h2>
+    <p class="lede reveal d1">Kontaktlose Sensorik eröffnet Einsatzfelder, in denen Kameras zu invasiv und Wearables unpraktisch sind, gerade dort, wo Privatsphäre zählt.</p>
+    <div class="use-grid">
+      <div class="use-card glass tilt reveal d1" data-tilt>
+        <div class="glow" style="position:absolute;inset:0;opacity:0;background:radial-gradient(120px 120px at var(--mx,50%) var(--my,50%),rgba(147,195,184,.1),transparent 70%);transition:opacity .3s;pointer-events:none"></div>
+        <span class="num">01</span>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 100-18 9 9 0 000 18z"/><path d="M12 12a3 3 0 100-6 3 3 0 000 6z"/><path d="M7 18a5 5 0 0110 0"/></svg></div>
+        <h3>Präsenzerkennung</h3>
+        <p>Erkennen, ob und wo sich eine Person in einem Raum aufhält, für smarte Beleuchtung, Klima oder Sicherheit.</p>
+        <span class="priv"><span class="live-dot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></span>kontaktlos</span>
+      </div>
+      <div class="use-card glass tilt reveal d2" data-tilt>
+        <div class="glow" style="position:absolute;inset:0;opacity:0;background:radial-gradient(120px 120px at var(--mx,50%) var(--my,50%),rgba(147,195,184,.1),transparent 70%);transition:opacity .3s;pointer-events:none"></div>
+        <span class="num">02</span>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6l4 2"/><path d="M5 21l3-6M19 21l-3-6M9 9l-2 6h10l-2-6"/></svg></div>
+        <h3>Sturzdetektion</h3>
+        <p>Plötzliche, untypische Bewegungsmuster erkennen, relevant etwa für die Sicherheit allein lebender Menschen.</p>
+        <span class="priv"><span class="live-dot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></span>kontaktlos</span>
+      </div>
+      <div class="use-card glass tilt reveal d3" data-tilt>
+        <div class="glow" style="position:absolute;inset:0;opacity:0;background:radial-gradient(120px 120px at var(--mx,50%) var(--my,50%),rgba(147,195,184,.1),transparent 70%);transition:opacity .3s;pointer-events:none"></div>
+        <span class="num">03</span>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-5 4 10 2-7 2 4h6"/></svg></div>
+        <h3>Atemmonitoring</h3>
+        <p>Feine, periodische Signaländerungen sichtbar machen, als Grundlage für unaufdringliches Wohlbefinden-Monitoring.</p>
+        <span class="priv"><span class="live-dot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></span>kontaktlos</span>
+      </div>
+    </div>
+    <div class="privacy reveal d1">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+      <div>
+        <h4>Privatsphäre als Grundprinzip</h4>
+        <p>Es entstehen keine Bilder und keine Tonaufnahmen. Gemessen wird ausschließlich die Veränderung des Funkfelds, die Erkennung bleibt anonym und kontaktlos.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap foot-inner">
+    <div>
+      <div class="brand" style="margin-bottom:14px">
+        <span class="glyph"><svg viewBox="0 0 24 24" fill="none"><path d="M12 19.5a1.6 1.6 0 100-3.2 1.6 1.6 0 000 3.2z" fill="#74cdd8"/><path d="M7.4 13.4a6.4 6.4 0 019.2 0M4.2 10.1a11 11 0 0115.6 0" stroke="#93c3b8" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span>CSI<span style="color:var(--cyan)">·</span>Sense</span>
+      </div>
+      <p>Ein WiFi-Sensing-Projekt: den Raum wahrnehmen mit nichts als Funkwellen und maschinellem Lernen.</p>
+    </div>
+    <div class="foot-links">
+      <a href="#was">Konzept</a>
+      <a href="#csi">CSI</a>
+      <a href="#arch">Architektur</a>
+      <a href="#stack">Technik</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   Utilities
+============================================================ */
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function dpr(){return Math.min(window.devicePixelRatio||1, 2);}
+
+/* ============================================================
+   Cursor glow :: soft light following the pointer
+============================================================ */
+(function(){
+  const g=document.getElementById('cursorGlow'); if(!g) return;
+  let tx=innerWidth/2, ty=innerHeight/2, x=tx, y=ty, raf=0;
+  addEventListener('pointermove',(e)=>{
+    if(e.pointerType==='touch') return;
+    tx=e.clientX; ty=e.clientY; g.style.opacity='1';
+    if(!raf) raf=requestAnimationFrame(tick);
+  },{passive:true});
+  addEventListener('pointerdown',()=>{ g.style.opacity='1'; });
+  document.addEventListener('mouseleave',()=>{ g.style.opacity='0'; });
+  function tick(){
+    x+=(tx-x)*0.18; y+=(ty-y)*0.18;
+    g.style.transform=`translate(${x}px,${y}px)`;
+    if(Math.abs(tx-x)>0.4||Math.abs(ty-y)>0.4){ raf=requestAnimationFrame(tick); } else { raf=0; }
+  }
+})();
+
+/* ============================================================
+   NAV scroll state
+============================================================ */
+const nav = document.getElementById('nav');
+addEventListener('scroll', ()=>{ nav.classList.toggle('scrolled', scrollY>30); }, {passive:true});
+
+/* ============================================================
+   Scroll reveal
+============================================================ */
+const io = new IntersectionObserver((entries)=>{
+  for(const e of entries){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} }
+},{threshold:.14, rootMargin:'0px 0px -8% 0px'});
+document.querySelectorAll('.reveal:not(.in)').forEach(el=>io.observe(el));
+
+/* ============================================================
+   Card tilt + glow microinteraction
+============================================================ */
+document.querySelectorAll('[data-tilt]').forEach(card=>{
+  card.addEventListener('mousemove',(e)=>{
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX-r.left)/r.width, py=(e.clientY-r.top)/r.height;
+    const rx = (py-.5)*-6, ry=(px-.5)*8;
+    card.style.transform = `perspective(700px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-4px)`;
+    card.style.setProperty('--mx', (px*100)+'%');
+    card.style.setProperty('--my', (py*100)+'%');
+  });
+  card.addEventListener('mouseleave',()=>{ card.style.transform=''; });
+});
+
+/* ============================================================
+   HERO :: layered waves with mouse distortion field
+============================================================ */
+(function(){
+  // ---- realistic WATER ripple simulation (height-field solver) ----
+  // The cursor is the "person" wading through water: motion injects a wake,
+  // ripples propagate outward, interfere and damp out, exactly like real water.
+  const c = document.getElementById('waveCanvas');
+  const ctx = c.getContext('2d');
+  const hero = document.querySelector('.hero');
+  let W=0, H=0, gw=0, gh=0, scl=6;
+  let cur, prev, off, octx, oimg;
+  const DAMP = 0.97;
+
+  function alloc(){
+    scl = Math.max(5, Math.round(W/240));     // grid cell size in CSS px
+    gw  = Math.max(4, Math.floor(W/scl));
+    gh  = Math.max(4, Math.floor(H/scl));
+    cur  = new Float32Array(gw*gh);
+    prev = new Float32Array(gw*gh);
+    off  = document.createElement('canvas'); off.width=gw; off.height=gh;
+    octx = off.getContext('2d');
+    oimg = octx.createImageData(gw,gh);
+    const d=oimg.data; for(let k=3;k<d.length;k+=4) d[k]=255; // opaque
+  }
+  function resize(){
+    W = hero.clientWidth; H = hero.clientHeight;
+    const D = dpr();
+    c.width = Math.round(W*D); c.height = Math.round(H*D);
+    c.style.width = W+'px'; c.style.height = H+'px';  // fixed px -> URL-bar height change never rescales/jumps
+    ctx.setTransform(D,0,0,D,0,0);
+    ctx.imageSmoothingEnabled = true;
+  }
+  let lastW=0, seeded=false;
+  function tryFit(force){
+    const cw=hero.clientWidth, ch=hero.clientHeight;
+    if(cw<=0||ch<=0) return;                       // not laid out yet
+    if(force || gw===0 || Math.abs(cw-lastW)>2){    // first valid size, or real width change
+      resize(); alloc(); lastW=W;
+      if(!seeded){ seeded=true; seed(); }           // seed load ripples only once we have a real grid
+    }
+  }
+  tryFit(true);
+  // ResizeObserver fires once layout resolves (window 'resize' may never fire) — mirrors room/csi canvases
+  new ResizeObserver(()=>tryFit(false)).observe(hero);
+  addEventListener('resize', ()=>tryFit(false));
+
+  // ---- disturbance ----
+  function drop(gx,gy,power){
+    if(!cur||gw<3||gh<3) return;                    // ignore until the grid has a real size
+    const cx=Math.round(gx), cy=Math.round(gy), R=2;
+    for(let yy=-R; yy<=R; yy++){
+      for(let xx=-R; xx<=R; xx++){
+        const x=cx+xx, y=cy+yy;
+        if(x<1||y<1||x>=gw-1||y>=gh-1) continue;
+        const fall = 1 - Math.hypot(xx,yy)/(R+1);
+        if(fall>0) cur[y*gw+x] += power*fall;
+      }
+    }
+  }
+  const ptr={x:0,y:0,active:false};
+  hero.addEventListener('pointermove',(e)=>{
+    const r=hero.getBoundingClientRect();
+    const nx=(e.clientX-r.left)/scl, ny=(e.clientY-r.top)/scl;
+    if(ptr.active){
+      const dx=nx-ptr.x, dy=ny-ptr.y, dist=Math.hypot(dx,dy);
+      const steps=Math.max(1, Math.min(14, Math.round(dist)));   // continuous wake along the path
+      const speed=Math.min(1.4, dist/5);
+      for(let i=1;i<=steps;i++) drop(ptr.x+dx*i/steps, ptr.y+dy*i/steps, -110*(0.55+speed));
+    } else {
+      drop(nx,ny,-170);
+    }
+    ptr.x=nx; ptr.y=ny; ptr.active=true;
+  });
+  hero.addEventListener('pointerleave',()=>{ ptr.active=false; });
+  hero.addEventListener('pointerdown',(e)=>{ const r=hero.getBoundingClientRect(); drop((e.clientX-r.left)/scl,(e.clientY-r.top)/scl,-340); });
+
+  // continuous ambient ripples so the surface always looks like living water
+  let ambAcc=0;
+  function ambient(dt){
+    ambAcc+=dt;
+    if(ambAcc>0.42){ ambAcc=0;
+      const n=1+(Math.random()<0.5?1:0);
+      for(let q=0;q<n;q++) drop(3+Math.random()*(gw-6), 3+Math.random()*(gh-6), -46-Math.random()*48);
+    }
+  }
+  function seed(){ for(let i=0;i<10;i++) drop(3+Math.random()*(gw-6), 3+Math.random()*(gh-6), -150); } // alive on load
+
+  // ---- solver (Hugo-Elias height field) ----
+  const CAP=230;
+  function step(){
+    const a=cur, b=prev, w=gw;
+    for(let y=1;y<gh-1;y++){
+      let i=y*w+1;
+      for(let x=1;x<w-1;x++,i++){
+        let v = (((a[i-1]+a[i+1]+a[i-w]+a[i+w])*0.5) - b[i]) * DAMP;
+        if(v>CAP) v=CAP; else if(v<-CAP) v=-CAP;   // clamp so fast swipes can't blow out
+        b[i]=v;
+      }
+    }
+    cur=b; prev=a;   // b holds the new surface
+  }
+
+  // ---- render: slope -> glowing crests (refraction/specular look) ----
+  function render(){
+    const d=oimg.data, w=gw, s=cur;
+    for(let y=1;y<gh-1;y++){
+      let i=y*w+1;
+      for(let x=1;x<w-1;x++,i++){
+        const dx=s[i-1]-s[i+1], dy=s[i-w]-s[i+w];
+        const slope=Math.sqrt(dx*dx+dy*dy);
+        let spec=dx*0.6+dy*0.6; if(spec<0) spec=0;          // crest facing the light (upper-left)
+        let hb=s[i]*0.012; if(hb<0) hb=-hb; if(hb>1) hb=1;   // body glow from displacement amplitude
+        let e=slope*0.085; if(e>1) e=1;                       // crisp wave edges
+        let sp=spec*0.05;  if(sp>1) sp=1;                     // specular glints
+        const p=i*4;
+        let R=8 + e*48 + hb*22 + sp*58, G=9 + e*118 + hb*40 + sp*60, B=12 + e*132 + hb*48 + sp*68;
+        d[p]=R>255?255:R; d[p+1]=G>255?255:G; d[p+2]=B>255?255:B;
+      }
+    }
+    octx.putImageData(oimg,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.drawImage(off,0,0,W,H);   // smooth-scaled to full hero
+  }
+
+  let last=performance.now();
+  function frame(now){
+    if(now===undefined) now=performance.now();
+    const dt=Math.min(0.05,(now-last)/1000); last=now;
+    if(!reduceMotion){ ambient(dt); step(); }
+    render();
+    if(!reduceMotion) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ============================================================
+   ROOM viz :: TX/RX field + walking disturbance
+============================================================ */
+(function(){
+  const c=document.getElementById('roomCanvas'); if(!c) return;
+  const ctx=c.getContext('2d'); let W,H,D=dpr();
+  const box=c.parentElement;
+  function resize(){ D=dpr(); W=box.clientWidth; H=box.clientHeight; c.width=W*D;c.height=H*D; c.style.width=W+'px';c.style.height=H+'px'; ctx.setTransform(D,0,0,D,0,0);}
+  resize(); new ResizeObserver(resize).observe(box);
+  let t=0, auto=0;
+  let rxPing=-9, lastArrival=0;
+  const tx={x:0.12,y:0.82}, rx={x:0.88,y:0.18};
+  const person={x:0.5,y:0.5};            // fractional, eased
+  const ptr={x:0,y:0,inside:false};
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  box.addEventListener('pointermove',(e)=>{ const r=box.getBoundingClientRect(); ptr.x=(e.clientX-r.left)/r.width; ptr.y=(e.clientY-r.top)/r.height; ptr.inside=true; });
+  box.addEventListener('pointerleave',()=>{ ptr.inside=false; });
+
+  function frame(){
+    ctx.clearRect(0,0,W,H);
+    const TX={x:tx.x*W,y:tx.y*H}, RX={x:rx.x*W,y:rx.y*H};
+    // object follows cursor while hovering, otherwise gentle auto-walk
+    let targetX,targetY;
+    if(ptr.inside){ targetX=clamp(ptr.x,0.08,0.92); targetY=clamp(ptr.y,0.12,0.88); }
+    else { auto+=0.016; targetX=0.5+Math.sin(auto*0.5)*0.24; targetY=0.55+Math.cos(auto*0.4)*0.16; }
+    person.x+=(targetX-person.x)*0.14; person.y+=(targetY-person.y)*0.14;
+    const px=person.x*W, py=person.y*H;
+
+    // faint direct line TX -> RX
+    ctx.setLineDash([4,5]); ctx.strokeStyle='rgba(150,168,182,0.16)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(TX.x,TX.y); ctx.lineTo(RX.x,RX.y); ctx.stroke(); ctx.setLineDash([]);
+
+    // DIRECTED wavefronts: arcs emitted at TX that sweep across the room and ARRIVE at RX
+    const dx=RX.x-TX.x, dy=RX.y-TX.y;
+    const L=Math.hypot(dx,dy);
+    const baseAng=Math.atan2(dy,dx);
+    const NW=12, SPEED=0.32;           // twice as many wavefronts, SAME radial speed (speed = reach*SPEED)
+    const reach=Math.hypot(W,H);       // rings expand to fill the whole room
+    const f0=L/reach;                  // fraction of the radius at which a ring reaches RX
+    // object in polar coords around TX -> defines the shadow sector cast toward RX
+    const oRelX=px-TX.x, oRelY=py-TX.y;
+    const objDist=Math.hypot(oRelX,oRelY);
+    const objAng=Math.atan2(oRelY,oRelX);
+    const angHalf=Math.min(0.72, Math.atan2(32, Math.max(24,objDist))*2.5); // shadow angular width (wider)
+    const norm=(a)=>{ while(a>Math.PI)a-=2*Math.PI; while(a<-Math.PI)a+=2*Math.PI; return a; };
+
+    // geometry: how a wavefront bends as it diffracts around the object
+    function rrAt(ang, rad){
+      let rr=rad;
+      const dA=norm(ang-objAng);
+      if(rad>objDist && Math.abs(dA)<angHalf){
+        const depth=Math.min(1,(rad-objDist)/90);     // distance travelled past the object
+        const prox=1-Math.abs(dA)/angHalf;            // 1 on the shadow axis
+        rr-=prox*(1-depth*0.55)*20;                    // strong delay behind the obstacle, heals downstream
+        rr+=prox*depth*7*Math.sin((rad-objDist)*0.10 - t*3); // diffraction reorganisation
+      }
+      // local interaction dent where the front meets the object surface
+      const wx=TX.x+Math.cos(ang)*rad, wy=TX.y+Math.sin(ang)*rad;
+      const dist=Math.hypot(wx-px,wy-py);
+      rr-=Math.exp(-(dist*dist)/(2*42*42))*34;
+      return rr;
+    }
+    // amplitude: damped inside the shadow, brighter diffraction fringe at its edges (same colour throughout)
+    function ampAt(ang, rad, baseA){
+      const dA=norm(ang-objAng);
+      if(rad>objDist && Math.abs(dA)<angHalf*1.3){
+        const depth=Math.min(1,(rad-objDist)/130);
+        const inside=Math.abs(dA)/angHalf;
+        let damp = inside<1 ? (0.10 + 0.62*inside) : 1; // deep, dark shadow on the axis
+        damp += depth*0.5;                              // diffraction gradually fills the shadow
+        const edge=Math.exp(-Math.pow((Math.abs(dA)-angHalf)/0.06,2));
+        const fr = 1 + edge*0.7*(1-depth);             // bright fringe at the shadow boundary
+        return baseA * Math.min(1.15, damp) * fr;
+      }
+      return baseA;
+    }
+
+    // a ring reaches RX when its radius crosses f0*reach == L -> receive ping
+    const arrivalIdx=Math.floor((t*SPEED - f0)*NW);
+    if(arrivalIdx>lastArrival){ lastArrival=arrivalIdx; rxPing=t; }
+    ctx.globalCompositeOperation='lighter';
+    const TWO_PI=Math.PI*2;
+    for(let i=0;i<NW;i++){
+      const ph=((t*SPEED + i/NW)%1);   // 0 at TX -> 1 at the far corner
+      const rad=ph*reach;
+      const baseA=Math.sin(ph*Math.PI)*0.5;            // fade in at TX, out at the edges
+      let prevX=null,prevY=null,prevA=0, firstX=0,firstY=0,firstA=0;
+      for(let a=0;a<=TWO_PI;a+=0.05){                  // FULL circle around TX
+        const rr=rrAt(a,rad);
+        const x=TX.x+Math.cos(a)*rr, y=TX.y+Math.sin(a)*rr;
+        const al=ampAt(a,rad,baseA);
+        if(prevX!==null){
+          ctx.beginPath(); ctx.moveTo(prevX,prevY); ctx.lineTo(x,y);
+          ctx.strokeStyle=`rgba(116,205,216,${(prevA+al)/2})`; ctx.lineWidth=1.4; ctx.stroke();
+        } else { firstX=x; firstY=y; firstA=al; }
+        prevX=x; prevY=y; prevA=al;
+      }
+      // close the seam so there's no radial gap (which otherwise lines up as a horizontal line at TX height)
+      ctx.beginPath(); ctx.moveTo(prevX,prevY); ctx.lineTo(firstX,firstY);
+      ctx.strokeStyle=`rgba(116,205,216,${(prevA+firstA)/2})`; ctx.lineWidth=1.4; ctx.stroke();
+    }
+    // RX arrival ping (unchanged colour)
+    const since=t-rxPing;
+    if(since>=0 && since<0.6){
+      ctx.beginPath(); ctx.arc(RX.x,RX.y,7+since*70,0,7);
+      ctx.strokeStyle=`rgba(147,195,184,${(1-since/0.6)*0.75})`; ctx.lineWidth=1.7; ctx.stroke();
+    }
+    ctx.globalCompositeOperation='source-over';
+
+    // the movable object
+    const hot=ptr.inside;
+    ctx.globalCompositeOperation='lighter';
+    ctx.beginPath(); ctx.arc(px,py,(hot?20:17)+Math.sin(t*3)*2,0,7);
+    ctx.strokeStyle=`rgba(147,195,184,${hot?0.9:0.55})`; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.globalCompositeOperation='source-over';
+    ctx.beginPath(); ctx.arc(px,py,6,0,7); ctx.fillStyle='rgba(184,224,216,0.96)'; ctx.fill();
+
+    drawNode(TX,'#74cdd8'); drawNode(RX,'#93c3b8');
+    t+=reduceMotion?0:0.016;
+    if(!reduceMotion) requestAnimationFrame(frame);
+  }
+  function drawNode(p,col){
+    ctx.beginPath(); ctx.arc(p.x,p.y,6,0,7); ctx.fillStyle=col; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,11,0,7); ctx.strokeStyle=col+'88'; ctx.lineWidth=1; ctx.stroke();
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ============================================================
+   CSI HEATMAP :: viridis, scrolling
+============================================================ */
+(function(){
+  const disp=document.getElementById('csiCanvas'); if(!disp) return;
+  const dctx=disp.getContext('2d');
+  const COLS=180, ROWS=64;
+  // offscreen low-res buffer
+  const buf=document.createElement('canvas'); buf.width=COLS; buf.height=ROWS;
+  const bctx=buf.getContext('2d');
+  let img=bctx.createImageData(COLS,ROWS);
+  // viridis control points
+  const VIR=[[68,1,84],[59,82,139],[33,144,141],[93,201,99],[253,231,37]];
+  function viridis(v){
+    v=Math.max(0,Math.min(1,v));
+    const s=v*(VIR.length-1); const i=Math.floor(s); const f=s-i;
+    const a=VIR[i], b=VIR[Math.min(VIR.length-1,i+1)];
+    return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+  }
+  let T=0;
+  const stage=disp.parentElement;
+  const probe=document.getElementById('csiProbe');
+  const inject={sc:32, amp:0, fy:0.5, active:false};
+  stage.addEventListener('pointermove',(e)=>{
+    const r=stage.getBoundingClientRect();
+    const fy=Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
+    inject.fy=fy; inject.sc=(1-fy)*(ROWS-1); inject.amp=1; inject.active=true;
+    if(probe){ probe.style.opacity='1'; probe.style.top=(fy*100)+'%'; probe.textContent='sc '+(Math.round((1-fy)*(ROWS-1))+1)+'  \u25c2 Bewegung'; }
+  });
+  stage.addEventListener('pointerleave',()=>{ inject.active=false; if(probe) probe.style.opacity='0'; });
+  function colVal(sc,T){
+    let v=0.5;
+    v+=0.26*Math.sin(sc*0.30 + T*0.09);
+    v+=0.20*Math.sin(sc*0.13 - T*0.05 + Math.sin(T*0.02)*3);
+    v+=0.14*Math.sin(T*0.11 + sc*0.06);
+    // occasional "activity" burst sweeping across subcarriers
+    const burst=Math.exp(-Math.pow((sc - (32+28*Math.sin(T*0.04))),2)/(2*120))*0.5*Math.max(0,Math.sin(T*0.03));
+    v+=burst;
+    v+=(Math.random()-0.5)*0.05;
+    // user-injected "movement": diffuse bright CLUSTERS over many subcarriers, not a clean line
+    if(inject.amp>0.02){
+      const d=sc-inject.sc;
+      const env=Math.exp(-(d*d)/(2*11*11));        // broad, soft envelope spanning many subcarriers
+      // patchy cluster field: soft blobs a few subcarriers wide that drift & flicker -> leaves gaps
+      const blob=Math.sin(sc*0.42 + T*0.55)*Math.sin(sc*0.17 - T*0.38 + 1.3);
+      const cluster=Math.max(0, blob-0.12);        // thresholded -> broken up, never continuous
+      const speckle=(Math.random()<0.22)?Math.random():0;  // sparse bright grains
+      v += env*inject.amp*(cluster*1.15 + speckle*0.85);
+    }
+    return v;
+  }
+  // initialize buffer
+  function fillInitial(){
+    for(let x=0;x<COLS;x++){ for(let y=0;y<ROWS;y++){ putPix(x,y, colVal(ROWS-1-y, x)); } }
+    bctx.putImageData(img,0,0);
+  }
+  function putPix(x,y,v){
+    const [r,g,b]=viridis(v); const idx=(y*COLS+x)*4;
+    img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+  }
+  fillInitial();
+
+  function resize(){
+    const r=disp.parentElement.getBoundingClientRect(); const D=dpr();
+    disp.width=r.width*D; disp.height=r.height*D; disp.style.width=r.width+'px'; disp.style.height=r.height+'px';
+    dctx.setTransform(D,0,0,D,0,0);
+    dctx.imageSmoothingEnabled=true;
+  }
+  resize(); new ResizeObserver(resize).observe(disp.parentElement);
+
+  let acc=0, last=performance.now();
+  function frame(now){
+    const dt=now-last; last=now; acc+=dt;
+    const stepEvery=55; // ms per new column
+    while(acc>=stepEvery){
+      acc-=stepEvery; T++; inject.amp*=0.9;
+      // shift buffer left by 1
+      img=bctx.getImageData(0,0,COLS,ROWS);
+      const d=img.data;
+      for(let y=0;y<ROWS;y++){
+        for(let x=0;x<COLS-1;x++){
+          const s=(y*COLS+(x+1))*4, t=(y*COLS+x)*4;
+          d[t]=d[s];d[t+1]=d[s+1];d[t+2]=d[s+2];d[t+3]=255;
+        }
+        // new rightmost
+        const v=colVal(ROWS-1-y, T);
+        const [r,g,b]=viridis(v); const idx=(y*COLS+(COLS-1))*4;
+        d[idx]=r;d[idx+1]=g;d[idx+2]=b;d[idx+3]=255;
+      }
+      bctx.putImageData(img,0,0);
+    }
+    const w=disp.clientWidth,h=disp.clientHeight;
+    dctx.clearRect(0,0,w,h);
+    dctx.drawImage(buf,0,0,w,h);
+    if(inject.active){
+      const gy=inject.fy*h;
+      dctx.strokeStyle='rgba(255,255,255,0.45)'; dctx.lineWidth=1;
+      dctx.beginPath(); dctx.moveTo(0,gy+0.5); dctx.lineTo(w,gy+0.5); dctx.stroke();
+    }
+    requestAnimationFrame(frame);
+  }
+  if(reduceMotion){
+    const w=disp.clientWidth,h=disp.clientHeight; dctx.drawImage(buf,0,0,w,h);
+  } else requestAnimationFrame(frame);
+})();
+
+/* ============================================================
+   ARCHITECTURE :: flowing packets across nodes
+============================================================ */
+(function(){
+  const c=document.getElementById('archCanvas'); if(!c) return;
+  const ctx=c.getContext('2d'); let W,H,D=dpr();
+  const stage=c.parentElement;
+  function resize(){ D=dpr(); W=stage.clientWidth;H=stage.clientHeight; c.width=W*D;c.height=H*D;c.style.width=W+'px';c.style.height=H+'px'; ctx.setTransform(D,0,0,D,0,0); computeNodes();}
+  let nodes=[];
+  function computeNodes(){
+    nodes=[];
+    const els=stage.querySelectorAll('.node');
+    const sr=stage.getBoundingClientRect();
+    els.forEach(el=>{ const r=el.getBoundingClientRect(); nodes.push({x:r.left-sr.left+r.width/2, y:r.top-sr.top+r.height/2}); });
+  }
+  resize(); new ResizeObserver(resize).observe(stage);
+  // packets between consecutive nodes
+  let packets=[];
+  function spawn(){
+    if(nodes.length<2) return;
+    for(let seg=0; seg<nodes.length-1; seg++){
+      packets.push({seg, p:0, sp:0.006+Math.random()*0.004, col: seg===0?[116,205,216]:[147,195,184]});
+    }
+  }
+  let spawnT=0;
+  function frame(){
+    ctx.clearRect(0,0,W,H);
+    if(nodes.length>=2){
+      // connection glow lines
+      ctx.globalCompositeOperation='lighter';
+      for(let seg=0;seg<nodes.length-1;seg++){
+        const a=nodes[seg], b=nodes[seg+1];
+        ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+        ctx.strokeStyle='rgba(116,205,216,0.06)'; ctx.lineWidth=2; ctx.stroke();
+      }
+      // packets
+      for(const pk of packets){
+        const a=nodes[pk.seg], b=nodes[pk.seg+1];
+        const x=a.x+(b.x-a.x)*pk.p, y=a.y+(b.y-a.y)*pk.p;
+        const [r,g,bl]=pk.col;
+        const grd=ctx.createRadialGradient(x,y,0,x,y,16);
+        grd.addColorStop(0,`rgba(${r},${g},${bl},0.9)`); grd.addColorStop(1,`rgba(${r},${g},${bl},0)`);
+        ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,16,0,7); ctx.fill();
+        ctx.fillStyle=`rgba(${r},${g},${bl},1)`; ctx.beginPath(); ctx.arc(x,y,2.4,0,7); ctx.fill();
+        // trailing pulse ring
+        pk.p+=reduceMotion?0:pk.sp;
+      }
+      packets=packets.filter(p=>p.p<=1);
+      ctx.globalCompositeOperation='source-over';
+    }
+    spawnT++; if(spawnT> (reduceMotion?99999:46)){ spawnT=0; spawn(); }
+    requestAnimationFrame(frame);
+  }
+  spawn();
+  if(!reduceMotion) requestAnimationFrame(frame); else { computeNodes(); }
+})();
+</script>
+</body>
+</html>
