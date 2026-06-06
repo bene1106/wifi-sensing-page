@@ -88,6 +88,14 @@ header.nav.scrolled{background:rgba(6,9,16,.72);backdrop-filter:blur(14px);borde
 .nav-cta{font-size:14px;padding:9px 16px;border:1px solid var(--glass-brd);border-radius:9px;color:var(--ink);background:var(--glass);transition:.25s}
 .nav-cta:hover{border-color:rgba(116,205,216,.5);box-shadow:0 0 0 1px rgba(116,205,216,.25),0 8px 30px rgba(116,205,216,.12)}
 @media(max-width:780px){.nav-links{display:none}}
+/* mobile header fix: keep brand + CTA from colliding, and push the hero
+   content (badge row) clear of the fixed header so nothing overlaps */
+@media(max-width:780px){
+  .nav-inner{flex-wrap:wrap;justify-content:space-between;gap:10px 14px;padding:14px 20px}
+  .hero{align-items:flex-start}
+  .hero-inner{padding-top:104px;padding-bottom:56px}
+  .hero-badge{margin-bottom:24px}
+}
 
 /* ---------- hero ---------- */
 .hero{position:relative;min-height:100vh;display:flex;align-items:center;overflow:hidden}
