@@ -1,22 +1,28 @@
-# CODING AGENTS: READ THIS FIRST
+# WiFi-Sensing Visualisierung
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+Interaktive Web-Visualisierung zum WiFi-Sensing-Projekt mit dem ESP32-C6. Die Seite erklärt anschaulich, wie sich aus Channel State Information (CSI) und Machine Learning Bewegungen und Anwesenheit im Raum erkennen lassen, ganz ohne Kamera.
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+## Live-Seite
 
-## What you should do — IMPORTANT
+Die gehostete Landing-Page ist erreichbar unter:
+https://bene1106.github.io/wifi-sensing-page/
 
-**Read `wifi-sensing-visualisierung/project/WiFi-Sensing.html` in full.** The user had this file open when they triggered the handoff, so it's almost certainly the primary design they want built. Read it top to bottom — don't skim. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+## Inhalt
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+Das Projekt besteht aus zwei Seiten:
 
-## About the design files
+- **Startseite** (`index.html`): Einstieg und Überblick zum WiFi-Sensing-Projekt.
+- **RF- und Feature-Erklärseite** (`rf-animation.html`): vertiefende, animierte Erklärung zu Funksignalen (RF) und den daraus abgeleiteten Features.
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+## Technik
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+Reine HTML/CSS/JS-Seite ohne Build-Schritt oder Framework. Das Hosting läuft über GitHub Pages.
 
-## Bundle contents
+## Code-Repo
 
-- `wifi-sensing-visualisierung/README.md` — this file
-- `wifi-sensing-visualisierung/project/` — the `WiFi-Sensing Visualisierung` project files (HTML prototypes, assets, components)
+Der eigentliche Projektcode (Firmware, CSI-Auswertung, Machine Learning) liegt hier:
+https://github.com/bene1106/wifi-sensing-esp32c6
+
+## Autor
+
+Benedict Herrnleben, FU Berlin
